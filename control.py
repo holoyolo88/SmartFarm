@@ -20,14 +20,9 @@ class UartCom():
     def __init__(self, ui, eventThred):
         self.ui=ui
         self.get_com()
-        self.actuator_list=[[ui.pushButton_pumppower1,ui.pushButton_heaterpower1],
-                            [ui.pushButton_pumppower2,ui.pushButton_heaterpower2],
-                            [ui.pushButton_pumppower3,ui.pushButton_heaterpower3],
-                            [ui.pushButton_pumppower4,ui.pushButton_heaterpower4],]
                             
         ui.pushButton_comconnect.clicked.connect(lambda x:self.connect_serial())
         ui.pushButton_check.clicked.connect(lambda x: self.sendUart())
-        ui.pushButton_check.clicked.connect(lambda x: ui.label_lastchecktime)
         ui.pushButton_airpower.clicked.connect(lambda x: self.controlAirpower())
         ui.pushButton_windpower.clicked.connect(lambda x: self.controlWindpower())
         ui.pushButton_ledpower.clicked.connect(lambda x: self.controlLEDpower())
@@ -113,11 +108,11 @@ class UartCom():
 
     def sendUart(self):
         self.sendT1()
-        time.sleep(.4)
+        time.sleep(.2)
         self.sendT2()
-        time.sleep(.4)
+        time.sleep(.3)
         self.sendWater()
-        time.sleep(.4)
+        time.sleep(.5)
     
     def sendT1(self):
         msg = '\x02T1TEMP?\x03\x0A\x0D'
@@ -141,7 +136,7 @@ class UartCom():
         if self.uart != None:
             for i in range(1,5):
                 self.uart.write(msg.replace('N', str(i)).encode())
-                time.sleep(.05)      
+                time.sleep(.02)      
         else : 
             print('Not Connected')
     
@@ -240,11 +235,13 @@ class UartProtocol(asyncio.Protocol):
 
 
 class RcvParser(PyQt5.QtCore.QObject):
+
     rcvSensorSignal = PyQt5.QtCore.pyqtSignal(str)
     rcvPowerSignal = PyQt5.QtCore.pyqtSignal(str)
     rcvHeaterPowerSignal = PyQt5.QtCore.pyqtSignal(str)
     rcvPumpPowerSignal = PyQt5.QtCore.pyqtSignal(str)
     rcvWaterConditionSignal = PyQt5.QtCore.pyqtSignal(str)
+
     def __init__(self, uartCom, eventThread):
         super().__init__()
         self.uartCom = uartCom
@@ -254,7 +251,6 @@ class RcvParser(PyQt5.QtCore.QObject):
         self.rcvHeaterPowerSignal.connect(eventThread.updateHeater)
         self.rcvPumpPowerSignal.connect(eventThread.updatePump)
         self.rcvWaterConditionSignal.connect(eventThread.updateWaterCondition)
-        self.bathDEF_list = [BATH1, BATH2, BATH3, BATH4]
 
 
     def parsing(self, pkt):
@@ -279,33 +275,38 @@ class RcvParser(PyQt5.QtCore.QObject):
             self.rcvSensorSignal.emit('inside')
 
     def rcvWater(self, command):
-        print('c',command)
+        print('data parsed ', command)
         index = int(command[1])-1
-        self.bathDEF_list[index].TMP_list.append(float(command[3:8]))
-        self.bathDEF_list[index].DO_list.append(float(command[9:13]))
-        self.bathDEF_list[index].PH_list.append(float(command[14:18]))
-        self.bathDEF_list[index].Level = float(command[19:])
-        self.bathDEF_list[index].Timestamp_list.append(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+        bathDef_list[index].TMP_list.append(float(command[3:8]))
+        bathDef_list[index].DO_list.append(float(command[9:13]))
+        bathDef_list[index].PH_list.append(float(command[14:18]))
+        bathDef_list[index].Level = float(command[19:])
+        bathDef_list[index].Timestamp_list.append(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
         self.rcvWaterConditionSignal.emit('BATH'+command[1])
 
     def rcvAirpower(self, command):
+        print('data parsed ', command)
         ACTUATOR.AIR['power'] = 'ON' if command[3]=='O' else 'OFF'
         self.rcvPowerSignal.emit('air')
 
     def rcvWindpower(self, command):
+        print('data parsed ', command)
         ACTUATOR.WIND['power'] = 'ON' if command[3]=='O' else 'OFF'
         self.rcvPowerSignal.emit('wind')
 
     def rcvLEDpower(self, command):
+        print('data parsed ', command)
         ACTUATOR.LED['power'] = 'ON' if command[3]=='O' else 'OFF'
         self.rcvPowerSignal.emit('led')
 
     def rcvUVpower(self, command):
+        print('data parsed ', command)
         ACTUATOR.UV['power'] = 'ON' if command[3]=='O' else 'OFF'
         self.rcvPowerSignal.emit('uv')
 
 
     def rcvHeaterpower(self, command):
+        print('data parsed ', command)
         if command[1] == '1':
             BATH1.HEATER = 'ON' if command[3]=='O' else 'OFF'
             self.rcvHeaterPowerSignal.emit('BATH1')
@@ -320,6 +321,7 @@ class RcvParser(PyQt5.QtCore.QObject):
             self.rcvHeaterPowerSignal.emit('BATH4')
 
     def rcvPumppower(self, command):
+        print('data parsed ', command)
         if command[1] == '1':
             BATH1.PUMP = 'ON' if command[3]=='O' else 'OFF'
             self.rcvPumpPowerSignal.emit('BATH1')
@@ -350,8 +352,8 @@ class RcvParser(PyQt5.QtCore.QObject):
 #QThread를 상속받는 시계 ui 업데이트 스레드
 class TimeUpdateThread(PyQt5.QtCore.QThread):
     def __init__(self, ui):
-        self.ui = ui
         super().__init__()
+        self.ui = ui
         self.timer = PyQt5.QtCore.QTimer()
         self.timer.timeout.connect(self.changeTime)
         self.timer.start(1000)
@@ -371,7 +373,7 @@ class ValueUpdateThread(PyQt5.QtCore.QThread):
         self.ui = ui
         self.uartcom = uartcom
         self.eventThread = eventThread
-        self.INITILIZED_dict = { 'tmpgraph' : False , 'dograph' : False, 'phgraph' : False} 
+        self.INITILIZED_dict = {'tmpgraph' : False , 'dograph' : False, 'phgraph' : False} 
         self.timer1 = PyQt5.QtCore.QTimer()
         self.timer1.timeout.connect(self.updateValue)
         self.timer1.timeout.connect(self.updateTMPPlot)
@@ -390,7 +392,8 @@ class ValueUpdateThread(PyQt5.QtCore.QThread):
         if not self.INITILIZED_dict['tmpgraph']:
             for i, BATH in enumerate([BATH1, BATH2, BATH3, BATH4]):
                 ui.graphicsView_tmpgraph1.plot(BATH.TMP_list[-48:],pen=pg.mkPen(color=(27,119,208), width=3),
-                        style=QtCore.Qt.DashLine, antialias =True)#, symbol=('o'), symbolSize=4,symbolBrush=(27,119,208),antialias=True)
+                        style=QtCore.Qt.DashLine, antialias =True)
+            self.INITILIZED_dict['tmpgraph'] = True#, symbol=('o'), symbolSize=4,symbolBrush=(27,119,208),antialias=True)
             
             # or ui.pushButton_tmpgraph.isChecked():
             # ui.graphicsView_tmpgraph1.clear()
@@ -504,7 +507,6 @@ class EventThread(PyQt5.QtCore.QThread):
                                 [ui.label_watertmp2, ui.label_do2,ui.label_ph2,ui.label_level2],
                                 [ui.label_watertmp3, ui.label_do3,ui.label_ph3,ui.label_level3],
                                 [ui.label_watertmp4, ui.label_do4,ui.label_ph4,ui.label_level4]]
-        self.bathDEF_list = [BATH1, BATH2, BATH3, BATH4]
         self.bathcheckbox_list = [ui.checkBox_1, ui.checkBox_2, ui.checkBox_3, ui.checkBox_4,
                                 ui.checkBox_5, ui.checkBox_6, ui.checkBox_7, ui.checkBox_8]
 
@@ -520,18 +522,17 @@ class EventThread(PyQt5.QtCore.QThread):
                                 [ui.doubleSpinBox_fromtmp4, ui.doubleSpinBox_totmp4,
                                 ui.doubleSpinBox_fromdo4, ui.doubleSpinBox_todo4,
                                 ui.doubleSpinBox_fromph4, ui.doubleSpinBox_toph4]]
+
         for pushButton in self.pushButton_list:
             pushButton.setStyleSheet(StyleSheet.pushButton)
         for mainButton in self.mainButton_list:
             mainButton.setStyleSheet(StyleSheet.mainButton)
 
-        # ui.pushButton_check.clicked.connect(self.updateMain)
-        ui.pushButton_check.clicked.connect(lambda x: ui.label_lastchecktime.setText(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+        #ui.pushButton_check.clicked.connect(lambda x: ui.label_lastchecktime.setText(datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
         ui.pushButton_comconnect.clicked.connect(lambda x: ui.pushButton_comconnect.setText('연결 완료'))
 
         # changePage
         ui.pushButton_main.clicked.connect(lambda x: ui.stackedWidget.setCurrentIndex(0))
-        # ui.pushButton_main.clicked.connect(self.updateMain)
         ui.pushButton_watertmp.clicked.connect(lambda x: ui.stackedWidget.setCurrentIndex(1))
         ui.pushButton_watertmp.clicked.connect(self.updateTmp)
         ui.pushButton_do.clicked.connect(lambda x: ui.stackedWidget.setCurrentIndex(2))
@@ -662,10 +663,12 @@ class EventThread(PyQt5.QtCore.QThread):
             ui.pushButton_pumppower3.setText(BATH3.PUMP)
             ui.pushButton_pumppower4.setText(BATH4.PUMP)'''
         if BATH == 'BATH1':
+            print("bath1 calleded")
             ui.pushButton_pumppower1.setText(BATH1.PUMP)
             ui.pushButton_pumppower1.setStyleSheet(StyleSheet.normallabel_whitebg + StyleSheet.abnormaltext)\
             if BATH1.PUMP == 'ON' else ui.pushButton_pumppower1.setStyleSheet(StyleSheet.normallabel_whitebg)
         elif BATH == 'BATH2':
+            print("bath2 calleded")
             ui.pushButton_pumppower2.setText(BATH2.PUMP)
             ui.pushButton_pumppower2.setStyleSheet(StyleSheet.normallabel_whitebg + StyleSheet.abnormaltext)\
             if BATH2.PUMP == 'ON' else ui.pushButton_pumppower2.setStyleSheet(StyleSheet.normallabel_whitebg)
@@ -810,7 +813,7 @@ class EventThread(PyQt5.QtCore.QThread):
 
     def updateTmp(self):
         for i in range(4):
-            self.tmplabel_list[0][i].setText(str(self.bathDEF_list[i].TMP_list[-1]))
+            self.tmplabel_list[0][i].setText(str(bathDef_list[i].TMP_list[-1]))
             self.tmplabel_list[1][i].setText(str(SETTINGS.BATH_dict['BATH'+str(i+1)]['TMP']['from']))
             self.tmplabel_list[2][i].setText(str(SETTINGS.BATH_dict['BATH'+str(i+1)]['TMP']['to'])) 
             if float(self.tmplabel_list[0][i].text()) > float(self.tmplabel_list[2][i].text()) or \
@@ -821,7 +824,7 @@ class EventThread(PyQt5.QtCore.QThread):
 
     def updateDO(self):
         for i in range(4):
-            self.dolabel_list[0][i].setText(str(self.bathDEF_list[i].DO_list[-1]))
+            self.dolabel_list[0][i].setText(str(bathDef_list[i].DO_list[-1]))
             self.dolabel_list[1][i].setText(str(SETTINGS.BATH_dict['BATH'+str(i+1)]['DO']['from']))
             self.dolabel_list[2][i].setText(str(SETTINGS.BATH_dict['BATH'+str(i+1)]['DO']['to']))
             if float(self.dolabel_list[0][i].text()) > float(self.dolabel_list[2][i].text()) or \
@@ -832,7 +835,7 @@ class EventThread(PyQt5.QtCore.QThread):
 
     def updatePH(self):
         for i in range(4):
-            self.phlabel_list[0][i].setText(str(float(self.bathDEF_list[i].PH_list[-1])))
+            self.phlabel_list[0][i].setText(str(float(bathDef_list[i].PH_list[-1])))
             self.phlabel_list[1][i].setText(str(SETTINGS.BATH_dict['BATH'+str(i+1)]['PH']['from']))
             self.phlabel_list[2][i].setText(str(SETTINGS.BATH_dict['BATH'+str(i+1)]['PH']['to'])) 
             if float(self.phlabel_list[0][i].text()) > float(self.phlabel_list[2][i].text()) or \
@@ -940,7 +943,7 @@ class EventThread(PyQt5.QtCore.QThread):
         x = [(datetime.datetime.now() + datetime.timedelta(minutes=i)).strftime('%H:%M:%S') for i in range(48)]
         xdict = dict(enumerate(x))
         stringaxis = pg.AxisItem(orientation='bottom')
-        stringaxis.setTicks([xdict.items()])
+        stringaxis.setTicks([xdict.items()]) 
         stringaxis.setTickSpacing(5)
         font = font=QtGui.QFont('맑은 고딕', 11)
         print('called',graph)

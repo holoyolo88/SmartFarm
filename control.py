@@ -18,6 +18,9 @@ import pymysql
 
 # parameter placeholder
 INSERT_BATHquery = "INSERT INTO control_values(ID, bathID, TMP, DO, PH, DateTime) VALUES(%s, %s, %s, %s, %s, %s)"
+
+#INSERT_BATHquery = "INSERT INTO control_values(ID, bathID, TMP, DO, PH, EC, DateTime) VALUES(%s, %s, %s, %s, %s, %s)"
+
 INSERT_OUTSIDEquery = "INSERT INTO control_values(ID, OUTTMP, DateTime) VALUES(%s, %s, %s)"
 INSERT_INSIDEquery = "INSERT INTO control_values(ID, INTMP, INHUMID, CO2, LUX, DateTime) VALUES(%s, %s, %s, %s, %s, %s)"
 INSERT_ELECTRONquery = "inert INTO control_values(ID, ELEC, DateTime) VALUES(%s, %s, %s)"
@@ -27,6 +30,10 @@ FETCH_LASTquery = "SELECT DateTime FROM control_values ORDER BY DateTime DESC LI
 FETCH_BATHquery = "SELECT TMP, DO, PH, DateTime\
                     FROM control_values\
                     WHERE bathID = %s\
+                    AND TMP IS NOT NULL\
+                    AND DO IS NOT NULL\
+                    AND PH IS NOT NULL\
+                    AND DateTime IS NOT NULL\
                     ORDER BY DateTime DESC\
                     LIMIT 48"
 
@@ -36,26 +43,36 @@ FETCH_BATHquery_ = "SELECT AVG(TMP), AVG(DO), AVG(PH), DateTime\
 
 FETCH_OUTSIDEquery = "SELECT OUTTMP, DateTime\
                     FROM control_values\
-                    WHERE ID = 'outside'\
+                    WHERE ID = %s\
+                    AND OUTTMP IS NOT NULL\
+                    AND DateTime Is NOT NULL\
                     ORDER BY DateTime DESC\
                     LIMIT 48"
 
 FETCH_OUTSIDEquery_ = "SELECT AVG(OUTTMP), DateTime\
                         FROM control_values\
-                        WHERE ID = 'outside'"
+                        WHERE ID = %s"
                         
 FETCH_INSIDEquery = "SELECT INTMP, INHUMID, CO2, LUX, DateTime\
                         FROM control_values\
-                        WHERE ID = 'inside'\
+                        WHERE ID = %s\
+                        AND INTMP IS NOT NULL\
+                        AND INHUMID IS NOT NULL\
+                        AND CO2 IS NOT NULL\
+                        AND LUX IS NOT NULL\
+                        AND DateTime IS NOT NULL\
                         ORDER BY DateTime DESC\
                         LIMIT 48"
 
 FETCH_INSIDEquery_ = "SELECT AVG(INTMP), AVG(INHUMID), AVG(CO2), AVG(LUX), DateTime\
                         FROM control_values\
-                        WHERE ID = 'inside'"
+                        WHERE ID = %s"
 
+#FETCH_INSIDEquery_ = "SELECT AVG(INTMP), AVG(INHUMID), AVG(CO2), AVG(LUX), AVG(EC), DateTime\
+                        # FROM control_values\
+                        # WHERE ID = 'inside'"
 
-byWeek= " GROUP BY HOUR(DateTime)\
+byWeek= " GROUP BY DATE(DateTime), HOUR(DateTime)\
         ORDER BY DateTime DESC\
         LIMIT 168"
 
@@ -70,13 +87,15 @@ byMonth = " GROUP BY DATE(DateTime), HOUR(DateTime)\
 
 FETCH_ELECTRONquery = "SELECT ELEC, DateTime\
                         FROM control_values\
-                        WHERE ID = 'electron'\
+                        WHERE ID = %s\
+                        AND ELEC IS NOT NULL\
+                        AND DateTime IS NOT NULL\
                         ORDER BY DateTime DESC\
                         LIMIT 48"
 
-FETCH_ELECTRONquery_ = "SELECT ELEC, DateTime\
+FETCH_ELECTRONquery_ = "SELECT AVG(ELEC), DateTime\
                         FROM control_values\
-                        WHERE ID = 'electron'"
+                        WHERE ID = %s"
 
 hours = [[hour for hour in range(24) if hour%6 == 0],
         [hour for hour in range(24) if hour%6 == 1],
@@ -130,16 +149,18 @@ class DBInsertManager(PyQt5.QtCore.QThread):
         if self.connection:
             cursor = self.connection.cursor()
             if sensor == 'outside':
-                cursor.execute(FETCH_OUTSIDEquery)
+                print('outside')
+                cursor.execute(FETCH_OUTSIDEquery, 'outside')
                 rows = cursor.fetchall()
                 for row in rows:
                     SENSOR.OUTTMP_list.append(row[0])
                     SENSOR.OUTTMP_list.pop(0)
                     SENSOR.OUTTMP_DateTime_list.append(str(row[1])[-9:])
                     SENSOR.OUTTMP_DateTime_list.pop(0)
+                print(SENSOR.OUTTMP_list)
                 SENSOR.OUTTMP_DateTime_list.sort(reverse = True)
             elif sensor == 'inside':
-                cursor.execute(FETCH_INSIDEquery)
+                cursor.execute(FETCH_INSIDEquery, 'inside')
                 rows = cursor.fetchall()
                 for i, sensor_list in enumerate(sensorDef_list):
                     for row in rows:
@@ -150,7 +171,7 @@ class DBInsertManager(PyQt5.QtCore.QThread):
                     SENSOR.SENSORS_DateTime_list.pop(0)
                 SENSOR.SENSORS_DateTime_list.sort(reverse = True)
             elif sensor == 'electron':
-                cursor.execute(FETCH_ELECTRONquery)
+                cursor.execute(FETCH_ELECTRONquery,'electron')
                 rows = cursor.fetchall()
                 for row in rows:
                     SENSOR.ELECTRON_list.append(row[0])      
@@ -239,38 +260,39 @@ class DBFetchManager(PyQt5.QtCore.QThread):
             cursor2 = self.connection.cursor()
             if sensor == 'sensors':
                 if period == 'week':
-                    cursor1.execute(FETCH_OUTSIDEquery_+byWeek)
-                    cursor2.execute(FETCH_INSIDEquery_+byWeek)
+                    cursor1.execute(FETCH_OUTSIDEquery_+byWeek, 'outside')
                 else:
-                    cursor1.execute(FETCH_OUTSIDEquery_+byMonth, tuple(hours[int(datetime.datetime.now().strftime('%H'))%6]))
-                    cursor2.execute(FETCH_INSIDEquery_+byMonth, tuple(hours[int(datetime.datetime.now().strftime('%H'))%6]))
+                    cursor1.execute(FETCH_OUTSIDEquery_+byMonth, ('outside',)+tuple(hours[int(datetime.datetime.now().strftime('%H'))%6]))
                 rows1 = cursor1.fetchall()
                 dictionary['OUTTMP'] = [row[0] for row in rows1]
                 dictionary['TIME_outtmp'] = [str(row[1])[-14:-6] for row in rows1]
-                print('1',rows1)
-                print(dictionary['OUTTMP'])
+                if period == 'week':
+                    cursor2.execute(FETCH_INSIDEquery_+byWeek,'inside')
+                else:
+                    cursor2.execute(FETCH_INSIDEquery_+byMonth,('inside',)+tuple(hours[int(datetime.datetime.now().strftime('%H'))%6]))
                 rows2 = cursor2.fetchall()
                 dictionary['INTMP'] = [row[0] for row in rows2]
                 dictionary['INHUMID'] = [row[1] for row in rows2]
                 dictionary['CO2'] = [row[2] for row in rows2]
                 dictionary['LUX'] = [row[3] for row in rows2]
                 dictionary['TIME_sensors'] = [str(row[4])[-14:-6] for row in rows2]
-                print('2',rows2)
-                print('co2',dictionary['CO2'])
                 # dictionary['AMMONIA'].append(row[1])
                 # dictionary['AMMONIA'].pop(0)
                 # dictionary['EC'].append(row[1])
                 # dictionary['EC'].pop(0)
-                self.fetchSensorOldDataSignal.emit(False, 1)
+                if not ui.radioButton_airday1.isChecked():
+                    self.fetchSensorOldDataSignal.emit(False, 1)
+                if not ui.radioButton_airday2.isChecked():
+                    self.fetchSensorOldDataSignal.emit(False, 2)
             elif sensor == 'electron':
                 if period == 'week':
-                    cursor1.execute(FETCH_ELECTRONquery_+byWeek)
+                    cursor1.execute(FETCH_ELECTRONquery_+byWeek, 'electron')
                 else:
-                    cursor1.execute(FETCH_ELECTRONquery_+byMonth, hours[int(datetime.datetime.now().strftime('%H'))%6])
+                    cursor1.execute(FETCH_ELECTRONquery_+byMonth, ('electron',)+tuple(hours[int(datetime.datetime.now().strftime('%H'))%6]))
                 rows = cursor1.fetchall()
                 dictionary['ELECTRON']=[row[0] for row in rows]
                 dictionary['TIME_electron']=[str(row[1])[-14:-6] for row in rows]
-                self.fetchSensorOldDataSignal.emit(False, 2)
+                self.fetchSensorOldDataSignal.emit(False, 3)
 
     def disconnect(self):
         #connection 닫기
@@ -370,8 +392,8 @@ class UartCom():
             ui.comboBox_coms.setEnabled(True)
         pass
 
-    def printLog(self, msg):
-        print('<{!r}> {!r}'.format(self.getDateTime(), msg))
+    # def printLog(self, msg):
+    #     print('<{!r}> {!r}'.format(self.getDateTime(), msg))
 
     def disconnect_serial(self):
         # self.t.exit()
@@ -430,7 +452,8 @@ class UartCom():
         else:
             msg = '\x02B1BX\x03\x0A\x0D'
         if self.uart != None:
-            self.uart.write(msg.encode())    
+            self.uart.write(msg.encode())
+            print(msg)   
         else : 
             print('Not Connected')
 
@@ -440,7 +463,8 @@ class UartCom():
         else:
             msg = '\x02F1FX\x03\x0A\x0D'
         if self.uart != None:
-            self.uart.write(msg.encode())    
+            self.uart.write(msg.encode())   
+            print(msg) 
         else : 
             print('Not Connected')
 
@@ -451,6 +475,7 @@ class UartCom():
             msg = '\x02L00W000R000G000B000\x03\x0A\x0D'
         if self.uart != None:
             self.uart.write(msg.encode())    
+            print(msg)
         else : 
             print('Not Connected')
 
@@ -461,16 +486,19 @@ class UartCom():
             msg = '\x02U1UX\x03\x0A\x0D'
         if self.uart != None:
             self.uart.write(msg.encode())    
+            print(msg)
         else : 
             print('Not Connected')
 
-    def controlHeaterpower(self, ID, BATH, LOW, HIGH):
+    def controlHeaterpower(self, ID, BATH):
         if BATH.HEATER == 'OFF':
-            msg = '\x02H'+str(ID)+'HOL'+str(LOW)+'H'+str(HIGH)+'x03\x0A\x0D'
+            msg = '\x02H'+str(ID)+'HOL'+str(SETTINGS.BATH_dict['BATH'+str(ID)]['TMP']['from'])+\
+            'H'+str(SETTINGS.BATH_dict['BATH'+str(ID)]['TMP']['to'])+'\x03\x0A\x0D'
         else:
             msg = '\x02H'+str(ID)+'HX\x03\x0A\x0D'
         if self.uart != None:
             self.uart.write(msg.encode())
+            print(msg)
         else : 
             print('Not Connected')
 
@@ -480,7 +508,8 @@ class UartCom():
         else:
             msg = '\x02P'+str(ID)+'PX\x03\x0A\x0D'
         if self.uart != None:
-            self.uart.write(msg.encode())    
+            self.uart.write(msg.encode())
+            print(msg)
         else : 
             print('Not Connected')
 
@@ -490,7 +519,6 @@ class UartCom():
             self.uart.write(msg.encode())
         else :
             print('Not Connected')
-
 
 
 class UartProtocol(asyncio.Protocol):
@@ -526,6 +554,7 @@ class UartProtocol(asyncio.Protocol):
 
 
 class RcvParser(PyQt5.QtCore.QObject):
+    
     updateSensorSignal = PyQt5.QtCore.pyqtSignal(str)
     updatePowerSignal = PyQt5.QtCore.pyqtSignal(str)
     updateHeaterPowerSignal = PyQt5.QtCore.pyqtSignal(str)
@@ -555,7 +584,7 @@ class RcvParser(PyQt5.QtCore.QObject):
         self.updateDOSignal.connect(eventThread.updateDO)
         self.updatePHSignal.connect(eventThread.updatePH)
         self.updateAirSignal.connect(eventThread.updateAircondition)
-        self.updateELECSignal.connect(eventThread.updateElectron)
+        self.updateELECSignal.connect(eventThread.updateELEC)
         self.insertDBSignal.connect(dbInsertManagerThread.insertData)
 
     def parsing(self, pkt):
@@ -582,7 +611,7 @@ class RcvParser(PyQt5.QtCore.QObject):
             except Exception as e:
                 print(str(e))
                 outtmp = -50    
-            self.insertDBSignal.emit({'ID':"'outside'",'OUTTMP':outtmp,'DateTime':time}, 'outside')
+            self.insertDBSignal.emit({'ID':'outside','OUTTMP':outtmp,'DateTime':time}, 'outside')
             SENSOR.OUTTMP_list.append(outtmp)
             SENSOR.OUTTMP_DateTime_list.append(time)
             self.updateSensorSignal.emit('outside')
@@ -609,12 +638,12 @@ class RcvParser(PyQt5.QtCore.QObject):
             except Exception as e:
                 print(str(e))
                 lux =-1
-            self.insertDBSignal.emit({'ID':"'inside'",'INTMP':intmp, 'INHUMID': inhumid, 'CO2':co2, 'LUX':lux,'DateTime':time}, 'inside')
+            self.insertDBSignal.emit({'ID':'inside','INTMP':intmp, 'INHUMID': inhumid, 'CO2':co2, 'LUX':lux,'DateTime':time}, 'inside')
             SENSOR.INTMP_list.append(intmp)
             SENSOR.INHUMID_list.append(inhumid)
             SENSOR.CO2_list.append(co2)
             SENSOR.LUX_list.append(lux)            
-            SENSOR.SENSORS_DateTime_list.append(time)
+            SENSOR.SENSORS_DateTime_list.append(time[-9:])
             self.updateSensorSignal.emit('inside')
             SENSOR.INTMP_list.pop(0)
             SENSOR.INHUMID_list.pop(0)
@@ -659,15 +688,14 @@ class RcvParser(PyQt5.QtCore.QObject):
         # except Exception as e:
         #     print(str(e))
         #     ec = -1
-        # self.insertDBSignal.emit({'ID':"'bath'",'bathID':index+1,'TMP':tmp,'DO':do,'PH':ph,'EC':ec,'DateTime':time}, 'bath')
-        self.insertDBSignal.emit({'ID':"'bath'",'bathID':index+1,'TMP':tmp,'DO':do,'PH':ph,'DateTime':time}, 'bath')
+        # self.insertDBSignal.emit({'ID':'bath','bathID':index+1,'TMP':tmp,'DO':do,'PH':ph,'EC':ec,'DateTime':time}, 'bath')
+        self.insertDBSignal.emit({'ID':'bath','bathID':index+1,'TMP':tmp,'DO':do,'PH':ph,'DateTime':time}, 'bath')
 
-        
         bathDef_list[index].TMP_list.append(tmp)
         bathDef_list[index].DO_list.append(do)
         bathDef_list[index].PH_list.append(ph)
         bathDef_list[index].Level = level
-        bathDef_list[index].DateTime_list.append(time)
+        bathDef_list[index].DateTime_list.append(time[-9:])
         self.updateWaterConditionSignal.emit('BATH'+str(index+1))
         self.updateTMPSignal.emit()
         self.updateDOSignal.emit()
@@ -685,9 +713,9 @@ class RcvParser(PyQt5.QtCore.QObject):
         except Exception as e:
             print(str(e))
             electron = -1
-        self.insertDBSignal.emit({'ID':"'electron'",'ELEC':electron,'DateTime':time}, 'electron')
+        self.insertDBSignal.emit({'ID':'electron','ELEC':electron,'DateTime':time}, 'electron')
         SENSOR.ELECTRON_list.append(electron)
-        SENSOR.ELECTRON_DateTime_list.append(time)
+        SENSOR.ELECTRON_DateTime_list.append(time[-9:])
         self.updateELECSignal.emit()
         SENSOR.ELECTRON_list.pop(0)
         SENSOR.ELECTRON_DateTime_list.pop(0)
@@ -782,7 +810,14 @@ class ValueUpdateThread(PyQt5.QtCore.QThread):
         self.eventThread = eventThread
         self.timer1 = PyQt5.QtCore.QTimer()
         self.timer1.timeout.connect(self.updateValue)
-        self.timer1.start(SETTINGS.FREQ)
+        self.freq = 10
+        if SETTINGS.UNIT1 == 's':
+            self.freq = SETTINGS.FREQ1*1000
+        elif SETTINGS.UNIT1 == 'm':
+            self.freq = SETTINGS.FREQ1*1000*60
+        elif SETTINGS.UNIT1 == 'h':
+            self.freq = SETTINGS.FREQ1*1000*60*60
+        self.timer1.start(SETTINGS.FREQ1)
         self.start()
 
     def updateValue(self):
@@ -803,8 +838,9 @@ class EventThread(PyQt5.QtCore.QThread):
                                 ui.pushButton_tmpvalue, ui.pushButton_tmpgraph,
                                 ui.pushButton_dovalue, ui.pushButton_dograph,
                                 ui.pushButton_phvalue, ui.pushButton_phgraph,
-                                ui.pushButton_comconnect, ui.pushButton_disconnect, ui.pushButton_sensorsave1, ui.pushButton_sensorsave2,
+                                ui.pushButton_comconnect, ui.pushButton_disconnect,
                                 ui.pushButton_applyall, ui.pushButton_save,
+                                ui.pushButton_sensorsave1, ui.pushButton_sensorsave2, ui.pushButton_serversave,
                                 ui.pushButton_intmpsave, ui.pushButton_co2save, ui.pushButton_luxsave, ui.pushButton_ecsave,
                                 ui.pushButton_inhumidsave, ui.pushButton_ammoniasave, ui.pushButton_electronsave, ui.pushButton_othersave]
         self.tmplabel_list = [[ui.label_maintmp1,ui.label_maintmp2,ui.label_maintmp3,ui.label_maintmp4,
@@ -848,7 +884,11 @@ class EventThread(PyQt5.QtCore.QThread):
         self.controlButton_list = [[ui.pushButton_pumppower1, ui.pushButton_heaterpower1],
                                     [ui.pushButton_pumppower2, ui.pushButton_heaterpower2],
                                     [ui.pushButton_pumppower3, ui.pushButton_heaterpower3],
-                                    [ui.pushButton_pumppower4, ui.pushButton_heaterpower4],]
+                                    [ui.pushButton_pumppower4, ui.pushButton_heaterpower4]]
+        self.autoButton_lists = [[ui.pushButton_pumpauto1, ui.pushButton_heaterauto1],
+                                    [ui.pushButton_pumpauto2, ui.pushButton_heaterauto2],
+                                    [ui.pushButton_pumpauto3, ui.pushButton_heaterauto3],
+                                    [ui.pushButton_pumpauto4, ui.pushButton_heaterauto4]]
         self.INITIALIZED_dict = {'bath1' : False,'bath2' : False,'bath3' : False,'bath4' : False,
                                 'tmpgraph' : False , 'dograph' : False, 'phgraph' : False, 'settings': False,
                                 'pump': False, 'heater':False, 'actuator':False}
@@ -861,26 +901,37 @@ class EventThread(PyQt5.QtCore.QThread):
         self.bathgraph_list = [ui.graphicsView_bathgraph1, ui.graphicsView_bathgraph2,
                                 ui.graphicsView_bathgraph3, ui.graphicsView_bathgraph4]
 
-        self.updateSettings(False)
-        self.font = QtGui.QFont('맑은 고딕', 11)
+        self.updateSettings()
+        self.font10 = QtGui.QFont('맑은 고딕', 10)
+        self.font11 = QtGui.QFont('맑은 고딕', 11)
+        self.font12 = QtGui.QFont('맑은 고딕', 12)
         for pushButton in self.pushButton_list:
             pushButton.setStyleSheet(StyleSheet.pushButton)
         for i, mainButton in enumerate(self.mainButton_list):
             mainButton.setStyleSheet(StyleSheet.mainButton)
             # changePage
             mainButton.clicked.connect(partial(ui.stackedWidget.setCurrentIndex,i))
-        for checkbox in self.aircheckbox_list:
-            checkbox.clicked.connect(self.updateAircondition)
+
+        ui.checkBox_outtmp.clicked.connect(lambda x: self.updateAirConditionPlot(True if ui.radioButton_airday1.isChecked() else False, 1))
+        ui.checkBox_intmp.clicked.connect(lambda x: self.updateAirConditionPlot(True if ui.radioButton_airday1.isChecked() else False, 1))
+        ui.checkBox_inhumid.clicked.connect(lambda x: self.updateAirConditionPlot(True if ui.radioButton_airday1.isChecked() else False, 1))
+        ui.checkBox_lux.clicked.connect(lambda s: self.updateAirConditionPlot(True if ui.radioButton_airday1.isChecked() else False, 1))
+
+        ui.checkBox_co2.clicked.connect(lambda x: self.updateAirConditionPlot(True if ui.radioButton_airday2.isChecked() else False, 2))
+        ui.checkBox_ammonia.clicked.connect(lambda x:self.updateAirConditionPlot(True if ui.radioButton_airday2.isChecked() else False, 2))
         for i,radioButton in enumerate(self.radioButton_list[0][:4]):
             radioButton.clicked.connect(partial(self.updateBATHPlot, i))
+        for i,autoButton_list in enumerate(self.autoButton_lists):
+            for j, autoButton in enumerate(autoButton_list):
+                autoButton.toggled.connect(partial(self.enable, autoButton, self.controlButton_list[i][j], True))
 
-        ui.radioButton_airday1.clicked.connect(self.updateAirConditionPlot)
-        ui.radioButton_airday2.clicked.connect(self.updateAirConditionPlot)
-        ui.radioButton_airweek1.clicked.connect(partial(self.updateAirConditionPlot, False,1))
-        ui.radioButton_airweek2.clicked.connect(partial(self.updateAirConditionPlot, False,2))
-        ui.radioButton_airmonth1.clicked.connect(partial(self.updateAirConditionPlot, False,1))
-        ui.radioButton_airmonth2.clicked.connect(partial(self.updateAirConditionPlot, False,2))
+        ui.pushButton_airauto.clicked.connect(partial(self.enable, ui.pushButton_airauto, ui.pushButton_airpower, True))
+        ui.pushButton_windauto.clicked.connect(partial(self.enable, ui.pushButton_windauto, ui.pushButton_windpower, False))
+        ui.pushButton_ledauto.clicked.connect(partial(self.enable, ui.pushButton_ledauto, ui.pushButton_ledpower, True))
+        ui.pushButton_uvauto.clicked.connect(partial(self.enable, ui.pushButton_uvauto, ui.pushButton_uvpower, False))
 
+        ui.radioButton_airday1.clicked.connect(partial(self.updateAirConditionPlot, True,1))
+        ui.radioButton_airday2.clicked.connect(partial(self.updateAirConditionPlot, True, 2))
 
         for i in range(8):
             self.bathcheckbox_list[i].stateChanged.connect(partial(self.hideTab,i))
@@ -889,9 +940,9 @@ class EventThread(PyQt5.QtCore.QThread):
         ui.pushButton_watertmp.clicked.connect(self.updateTMPPlot)
         ui.pushButton_do.clicked.connect(self.updateDOPlot)
         ui.pushButton_ph.clicked.connect(self.updatePHPlot)
-        ui.pushButton_aircondition.clicked.connect(self.updateAirConditionPlot)
-        ui.pushButton_electron.clicked.connect(self.updateElectron)
-        ui.pushButton_settings.clicked.connect(lambda x : self.updateSettings(False))
+        ui.pushButton_aircondition.clicked.connect(self.updateAircondition)
+        ui.pushButton_electron.clicked.connect(self.updateELEC)
+        ui.pushButton_settings.clicked.connect(lambda x : self.updateSettings(pushButton_clicked = True))
         # changeSubPage
         ui.pushButton_tmpvalue.clicked.connect(lambda x : ui.stackedWidget_1.setCurrentIndex(0))
         ui.pushButton_tmpgraph.clicked.connect(lambda x : ui.stackedWidget_1.setCurrentIndex(1))
@@ -899,12 +950,12 @@ class EventThread(PyQt5.QtCore.QThread):
         ui.pushButton_dograph.clicked.connect(lambda x : ui.stackedWidget_2.setCurrentIndex(1))
         ui.pushButton_phvalue.clicked.connect(lambda x : ui.stackedWidget_3.setCurrentIndex(0))
         ui.pushButton_phgraph.clicked.connect(lambda x : ui.stackedWidget_3.setCurrentIndex(1))
-        # saveSettings
-        for i,string in enumerate(['save', 'intmp', 'co2', 'lux', 'ec', 'inhumid', 'ammonia', 'electron']):  #other
-            self.pushButton_list[11+i].clicked.connect(partial(self.saveSettings, string))
+    
+        for i,string in enumerate(['sensor1', 'sensor2','server', 'intmp', 'co2', 'lux', 'ec', 'inhumid', 'ammonia', 'electron']):  #other
+            self.pushButton_list[11+i].clicked.connect(partial(self.updateSettings, sensor = string))
 
-        ui.pushButton_applyall.clicked.connect(lambda x: self.updateSettings(True))
-        ui.pushButton_sensorsave1.clicked.connect(lambda x: self.saveSettings('freq'))
+        ui.pushButton_applyall.clicked.connect(lambda x: self.updateSettings(applyall_clicked= True))
+        ui.pushButton_save.clicked.connect(lambda x: self.updateSettings(saveall_clicked=True))
         
         self.updateBATHPlot(0)
         self.updateBATHPlot(1)
@@ -924,6 +975,27 @@ class EventThread(PyQt5.QtCore.QThread):
             ui.tabWidget.setTabEnabled(i,True) 
         else:
              ui.tabWidget.setTabEnabled(i,False)
+    
+    def enable(self, pushButton,controlButton, white):
+        if pushButton.isChecked() == True:
+            pushButton.setText('자동')
+            controlButton.setEnabled(False)
+            if white:
+                controlButton.setStyleSheet(StyleSheet.normallabel_whitebg+StyleSheet.disalbleButton)
+            else:
+                controlButton.setStyleSheet(StyleSheet.normallabel_greybg+StyleSheet.disalbleButton)
+        else:
+            pushButton.setText('수동')
+            controlButton.setEnabled(True)
+            if white:
+                controlButton.setStyleSheet(StyleSheet.normallabel_whitebg + StyleSheet.abnormaltext)\
+                if controlButton.text() == 'ON' else controlButton.setStyleSheet(StyleSheet.normallabel_whitebg)
+            else :
+                controlButton.setStyleSheet(StyleSheet.normallabel_greybg + StyleSheet.abnormaltext)\
+                if controlButton.text() == 'ON' else controlButton.setStyleSheet(StyleSheet.normallabel_greybg)
+
+
+
 
     @PyQt5.QtCore.pyqtSlot(str) 
     def updateActuator(self, actuator):
@@ -995,7 +1067,7 @@ class EventThread(PyQt5.QtCore.QThread):
                 ui.label_ec.setStyleSheet(StyleSheet.normallabel_whitebg + StyleSheet.abnormaltext)
             else :
                 ui.label_ec.setStyleSheet(StyleSheet.normallabel_whitebg)
-            ui.label_blackout.setText(str(SENSOR.BLACKOUT))
+            ui.label_blackout.setText(str(SENSOR.BLACKOUTcnt))
 
     @PyQt5.QtCore.pyqtSlot(str)
     def updatePump(self, BATH):
@@ -1184,7 +1256,7 @@ class EventThread(PyQt5.QtCore.QThread):
         if ui.stackedWidget.currentIndex() == 3:
             self.updatePHPlot()
           
-    def updateAircondition(self):
+    def updateAircondition(self, graph = 0):
         ui.label_outtmp2.setText(str(float(SENSOR.OUTTMP_list[-1])))
         ui.label_intmp2.setText(str(float(SENSOR.INTMP_list[-1])))
         if SENSOR.OUTTMP_list[-1] > SETTINGS.INTMP['to'] or SENSOR.OUTTMP_list[-1] < SETTINGS.INTMP['from']:
@@ -1212,83 +1284,9 @@ class EventThread(PyQt5.QtCore.QThread):
         else :
             ui.label_lux2.setStyleSheet(StyleSheet.normallabel_whitebg)
         if ui.stackedWidget.currentIndex() == 4:
-            if ui.radioButton_airday1.isChecked() or ui.radioButton_airday2.isChecked():
-                self.updateAirConditionPlot()
-            elif ui.radioButton_airweek1.isChecked():
-                self.updateAirConditionPlot(False, 1)
-            elif ui.radioButton_airmonth2.isChecked():
-                self.updateAirConditionPlot(False, 2)
-            elif ui.radioButton_airmonth1.isChecked():
-                self.updateAirConditionPlot(False, 1)
-            elif ui.radioButton_airmonth2.isChecked():
-                self.updateAirConditionPlot(False, 2)
-            
+            self.updateAirConditionPlot()
 
-    def saveSettings(self, setting):
-        with open ('config.json', 'r') as jsonFile:
-            data = json.load(jsonFile)
-            if setting == 'save':
-                for index in range(1,5):
-                    data["SETTINGS"]["BATH"+str(index)]["TMP"]["from"] = \
-                    SETTINGS.BATH_dict['BATH'+str(index)]['TMP']['from'] = self.bathSpinBox_list[index-1][0].value()
-                    data["SETTINGS"]["BATH"+str(index)]["TMP"]["to"] = \
-                    SETTINGS.BATH_dict['BATH'+str(index)]['TMP']['to'] = self.bathSpinBox_list[index-1][1].value()
-                    data["SETTINGS"]["BATH"+str(index)]["DO"]["from"] = \
-                    SETTINGS.BATH_dict['BATH'+str(index)]['DO']['from'] = self.bathSpinBox_list[index-1][2].value()
-                    data["SETTINGS"]["BATH"+str(index)]["DO"]["to"] = \
-                    SETTINGS.BATH_dict['BATH'+str(index)]['DO']['to'] = self.bathSpinBox_list[index-1][3].value()
-                    data["SETTINGS"]["BATH"+str(index)]["PH"]["from"] = \
-                    SETTINGS.BATH_dict['BATH'+str(index)]['PH']['from'] = self.bathSpinBox_list[index-1][4].value()
-                    data["SETTINGS"]["BATH"+str(index)]["PH"]["to"] = \
-                    SETTINGS.BATH_dict['BATH'+str(index)]['PH']['to'] = self.bathSpinBox_list[index-1][5].value()
-            elif setting == 'intmp':
-                data["SETTINGS"]["INTMP"]["from"] = \
-                SETTINGS.INTMP['from'] = ui.doubleSpinBox_intmp1.value()
-                data["SETTINGS"]["INTMP"]["to"] = \
-                SETTINGS.INTMP['to'] = ui.doubleSpinBox_intmp2.value()
-            elif setting == 'co2':
-                data["SETTINGS"]["CO2"]["from"] = \
-                SETTINGS.CO2['from'] = ui.doubleSpinBox_co21.value()
-                data["SETTINGS"]["CO2"]["to"] = \
-                SETTINGS.CO2['to'] = ui.doubleSpinBox_co22.value()
-            elif setting == 'lux':
-                SETTINGS.INLUX['from'] = ui.doubleSpinBox_lux1.value()
-                SETTINGS.INLUX['to'] = ui.doubleSpinBox_lux2.value()
-            elif setting == 'ec':
-                data["SETTINGS"]["EC"]["from"] = \
-                SETTINGS.EC['from'] = ui.doubleSpinBox_ec1.value()
-                data["SETTINGS"]["EC"]["to"] = \
-                SETTINGS.EC['to'] = ui.doubleSpinBox_ec2.value()
-            elif setting == 'inhumid':
-                data["SETTINGS"]["INHUMID"]["from"] = \
-                SETTINGS.INHUMID['from'] = ui.doubleSpinBox_inhumid1.value()
-                data["SETTINGS"]["INHUMID"]["to"] = \
-                SETTINGS.INHUMID['to'] = ui.doubleSpinBox_inhumid2.value()
-            elif setting == 'ammonia':
-                data["SETTINGS"]["AMMONIA"]["from"] = \
-                SETTINGS.AMMONIA['from'] = ui.doubleSpinBox_ammonia1.value()
-                data["SETTINGS"]["AMMONIA"]["to"] = \
-                SETTINGS.AMMONIA['to'] = ui.doubleSpinBox_ammonia2.value()
-            elif setting == 'electron':
-                data["SETTINGS"]["ELECTRON"]["delay"] = \
-                SETTINGS.ELECTRON['delay'] = 'O' if ui.checkBox_dayelecalert.isChecked() else 'X'
-                data["SETTINGS"]["ELECTRON"]["month"] = \
-                SETTINGS.ELECTRON['month'] = 'O' if ui.checkBox_monthelecalert.isChecked() else 'X'
-                data["SETTINGS"]["ELECTRON"]["blackout"] = \
-                SETTINGS.ELECTRON['blackout'] = 'O' if ui.checkBox_blackoutalert.isChecked() else 'X'
-            elif setting == 'freq':
-                if ui.comboBox_sensorunits1.currentText() == '초':
-                    data["SETTINGS"]["FREQ"] = \
-                    SETTINGS.FREQ = ui.spinBox_sensorfreq1.value() * 1000
-                elif ui.comboBox_sensorunits1.currentText() == '분':
-                    data["SETTINGS"]["FREQ"] = \
-                    SETTINGS.FREQ = ui.spinBox_sensorfreq1.value() * 60 * 1000
-                elif ui.comboBox_sensorunits1.currentText() == '시':
-                    data["SETTINGS"]["FREQ"]
-                    SETTINGS.FREQ = ui.spinBox_sensorfreq1.value() * 60 * 60 * 1000
-        with open("config.json", "w") as jsonFile:
-            json.dump(data, jsonFile, indent = 4)
-
+    @PyQt5.QtCore.pyqtSlot(int, bool)
     def updateBATHPlot(self, graph, new= True):
         if new:
             if self.radioButton_list[0][graph].isChecked() :
@@ -1297,105 +1295,95 @@ class EventThread(PyQt5.QtCore.QThread):
                 stringaxis = pg.AxisItem(orientation='bottom')
                 stringaxis.setTicks([dict(enumerate(time_list)).items()])
                 stringaxis.setTickSpacing(5,5)
-                #stringaxis.setStyle(autoExpandTextSpace = True, tickTextHeight=50)
                 TMPgraph = self.bathgraph_list[graph].addPlot(row = 0, col = 0, rowspan = 1, title = '수온',axisItems = {'bottom': stringaxis})
-                TMPgraph.getAxis('bottom').tickFont = self.font
-                TMPgraph.getAxis('left').tickFont = self.font
+                TMPgraph.getAxis('bottom').tickFont = self.font11
+                TMPgraph.getAxis('left').tickFont = self.font11
                 TMPgraph.getViewBox().setBackgroundColor(color=(0,0,0,200))
                 DOgraph = self.bathgraph_list[graph].addPlot(row =1, col = 0, rowspan = 1, title = 'DO',axisItems = {'bottom': stringaxis})
-                DOgraph.getAxis('left').tickFont = self.font
-                DOPgraph.getViewBox().setBackgroundColor(color=(0,0,0,200))
+                DOgraph.getAxis('left').tickFont = self.font11
+                DOgraph.getViewBox().setBackgroundColor(color=(0,0,0,200))
                 PHgraph = self.bathgraph_list[graph].addPlot(row =2, col = 0, rowspan = 1, title = 'pH',axisItems = {'bottom': stringaxis})
-                PHgraph.getAxis('left').tickFont = self.font
+                PHgraph.getAxis('left').tickFont = self.font11
                 PHgraph.getViewBox().setBackgroundColor(color=(0,0,0,200))
-                TMPgraph.plot(bathDef_list[graph].TMP_list[-48:], pen=pg.mkPen(color=(27,119,208), width=3),
-                            style=QtCore.Qt.DashLine, symbol=('o'), symbolSize=5,symbolBrush=(27,119,208),antialias=True)
-                DOgraph.plot(bathDef_list[graph].DO_list[-48:], pen=pg.mkPen(color=(33,94,162), width=3),
-                            style=QtCore.Qt.DashLine, symbol=('o'), symbolSize=5,symbolBrush=(33,94,162),antialias=True)
-                PHgraph.plot(bathDef_list[graph].PH_list[-48:], pen=pg.mkPen(color=(33,71,119), width=3),
-                            tyle=QtCore.Qt.DashLine, symbol=('o'), symbolSize=5,symbolBrush=(33,71,119),antialias=True)
+                TMPgraph.plot(bathDef_list[graph].TMP_list[-48:], pen=pg.mkPen(color=(25,255,55), width=3), symbol=('o'), symbolSize=5,symbolBrush=(25,255,55))
+                DOgraph.plot(bathDef_list[graph].DO_list[-48:], pen=pg.mkPen(color=(25,255,55), width=3),symbol=('o'), symbolSize=5,symbolBrush=(25,255,55))
+                PHgraph.plot(bathDef_list[graph].PH_list[-48:], pen=pg.mkPen(color=(25,255,55), width=3), symbol=('o'), symbolSize=5,symbolBrush=(25,255,55))
         else:
             if self.radioButton_list[1][graph].isChecked():
-                dictionary = bathDef_list[graph].WeekData_dict
+                self.dictionary = bathDef_list[graph].WeekData_dict
             elif self.radioButton_list[2][graph].isChecked():
-                dictionary = bathDef_list[graph].MonthData_dict
-            time_list = ['' if i%24 !=0 else dictionary['TIME'][-i] for i in range(len(dictionary['TIME'])%168)]
+                self.dictionary = bathDef_list[graph].MonthData_dict
+            time_list = ['' if i%24 !=0 else self.dictionary['TIME'][-i] for i in range(len(self.dictionary['TIME'])%168)]
             self.bathgraph_list[graph].clear()
             stringaxis = pg.AxisItem(orientation='bottom')
             stringaxis.setTicks([dict(enumerate(time_list)).items()])
             stringaxis.setTickSpacing(5,5)
             stringaxis.setStyle(autoExpandTextSpace = True, tickTextHeight=100)
             TMPgraph = self.bathgraph_list[graph].addPlot(row = 0, col = 0, rowspan = 1, title = '수온',axisItems = {'bottom': stringaxis})
-            TMPgraph.getAxis('bottom').tickFont = self.font
-            TMPgraph.getAxis('left').tickFont = self.font
+            TMPgraph.getAxis('bottom').tickFont = self.font10
+            TMPgraph.getAxis('left').tickFont = self.font11
             TMPgraph.getViewBox().setBackgroundColor(color=(0,0,0,200))
             DOgraph = self.bathgraph_list[graph].addPlot(row =1, col = 0, rowspan = 1, title = 'DO',axisItems = {'bottom': stringaxis})
-            DOgraph.getAxis('left').tickFont = self.font
+            DOgraph.getAxis('left').tickFont = self.font11
             DOgraph.getViewBox().setBackgroundColor(color=(0,0,0,200))
             PHgraph = self.bathgraph_list[graph].addPlot(row =2, col = 0, rowspan = 1, title = 'pH',axisItems = {'bottom': stringaxis})
-            PHgraph.getAxis('left').tickFont = self.font
+            PHgraph.getAxis('left').tickFont = self.font11
             PHgraph.getViewBox().setBackgroundColor(color=(0,0,0,200))
-            print(dictionary['TMP'])
-            TMPgraph.plot(dictionary['TMP'][:48], pen=pg.mkPen(color=(27,119,208), width=3),
-                        style=QtCore.Qt.DashLine, symbol=('o'), symbolSize=5,symbolBrush=(27,119,208),antialias=True)
-            DOgraph.plot(dictionary['DO'][:48], pen=pg.mkPen(color=(33,94,162), width=3),
-                        style=QtCore.Qt.DashLine, symbol=('o'), symbolSize=5,symbolBrush=(33,94,162),antialias=True)
-            PHgraph.plot(dictionary['PH'][:48], pen=pg.mkPen(color=(33,71,119), width=3),
-                        tyle=QtCore.Qt.DashLine, symbol=('o'), symbolSize=5,symbolBrush=(33,71,119),antialias=True)
-            print('plot end')
+            TMPgraph.plot(self.dictionary['TMP'][:48], pen=pg.mkPen(color=(25,255,55), width=3),symbol=('o'), symbolSize=5,symbolBrush=(25,255,55))
+            DOgraph.plot(self.dictionary['DO'][:48], pen=pg.mkPen(color=(25,255,55), width=3),symbol=('o'), symbolSize=5,symbolBrush=(25,255,55))
+            PHgraph.plot(self.dictionary['PH'][:48], pen=pg.mkPen(color=(25,255,55), width=3),symbol=('o'), symbolSize=5,symbolBrush=(25,255,55))
     
     def updateTMPPlot(self):
         time_list = ['' if i%6 !=0 else BATH1.DateTime_list[-i] for i in range(1,49)]
         ui.graphicsView_tmpgraph1.clear()
         stringaxis = pg.AxisItem(orientation='bottom')
         stringaxis.setTicks([dict(enumerate(time_list)).items()]) 
-        stringaxis.tickFont = self.font
         tmpgraph = ui.graphicsView_tmpgraph1.addPlot(title = 'TMP', axisItems = {'bottom' : stringaxis})
-        tmpgraph.getAxis('left').tickFont = self.font
+        tmpgraph.getAxis('bottom').tickFont = self.font10
+        tmpgraph.getAxis('left').tickFont = self.font11
+        tmpgraph.getViewBox().setBackgroundColor(color=(0,0,0,200))
         tmpgraph.getViewBox().setBackgroundColor(color=(0,0,0,200))
         for i,BATH in enumerate([BATH1, BATH2, BATH3, BATH4]):
-            tmpgraph.plot(BATH.PH_list[-48:], pen=pg.mkPen(color=StyleSheet.lineColor[i], width=4),
-            antialias =True)
+            tmpgraph.plot(BATH.PH_list[-48:], pen=pg.mkPen(color=StyleSheet.lineColor[i], width=4))
             tmpgraph.addItem(pg.InfiniteLine(SETTINGS.BATH_dict['BATH'+str(i+1)]['TMP']['from'],angle=0, 
-            movable=False,pen=pg.mkPen(color=StyleSheet.dotLineColor[i], width=2, style=QtCore.Qt.DotLine)))
+                            movable=False,pen=pg.mkPen(color=StyleSheet.dotLineColor[i], width=2, style=QtCore.Qt.DotLine)))
             tmpgraph.addItem(pg.InfiniteLine(SETTINGS.BATH_dict['BATH'+str(i+1)]['TMP']['to'],angle=0,
-            movable=False,pen=pg.mkPen(color=StyleSheet.dotLineColor[i], width=2, style= QtCore.Qt.DotLine)))
+                            movable=False,pen=pg.mkPen(color=StyleSheet.dotLineColor[i], width=2, style= QtCore.Qt.DotLine)))
 
     def updateDOPlot(self):
         time_list = ['' if i%6 !=0 else BATH1.DateTime_list[-i] for i in range(1,49)]
         ui.graphicsView_dograph1.clear()
         stringaxis = pg.AxisItem(orientation='bottom')
         stringaxis.setTicks([dict(enumerate(time_list)).items()]) 
-        stringaxis.tickFont = self.font
         dograph = ui.graphicsView_dograph1.addPlot(title = 'DO', axisItems = {'bottom' : stringaxis})
-        dograph.getAxis('left').tickFont = self.font
+        dograph.getAxis('left').tickFont = self.font11
+        dograph.getAxis('bottom').tickFont = self.font10
+        dograph.getViewBox().setBackgroundColor(color=(0,0,0,200))
         for i,BATH in enumerate([BATH1, BATH2, BATH3, BATH4]):
-            dograph.plot(BATH.DO_list[-48:], pen=pg.mkPen(color=StyleSheet.lineColor[i], width=4),
-            antialias =True )
+            dograph.plot(BATH.DO_list[-48:], pen=pg.mkPen(color=StyleSheet.lineColor[i], width=4))
             dograph.addItem(pg.InfiniteLine(SETTINGS.BATH_dict['BATH'+str(i+1)]['DO']['from'],angle=0, 
-            movable=False,pen=pg.mkPen(color=StyleSheet.dotLineColor[i], width=2, style=QtCore.Qt.DotLine)))
+                            movable=False,pen=pg.mkPen(color=StyleSheet.dotLineColor[i], width=2, style=QtCore.Qt.DotLine)))
             dograph.addItem(pg.InfiniteLine(SETTINGS.BATH_dict['BATH'+str(i+1)]['DO']['to'],angle=0,
-            movable=False,pen=pg.mkPen(color=StyleSheet.dotLineColor[i], width=2, style= QtCore.Qt.DotLine)))
+                            movable=False,pen=pg.mkPen(color=StyleSheet.dotLineColor[i], width=2, style= QtCore.Qt.DotLine)))
 
     def updatePHPlot(self):
         time_list = ['' if i%6 !=0 else BATH1.DateTime_list[-i] for i in range(1,49)]
         ui.graphicsView_phgraph1.clear()
         stringaxis = pg.AxisItem(orientation='bottom')
         stringaxis.setTicks([dict(enumerate(time_list)).items()]) 
-        stringaxis.tickFont = self.font
         phgraph = ui.graphicsView_phgraph1.addPlot(title = 'PH', axisItems = {'bottom' : stringaxis})
-        phgraph.getAxis('left').tickFont = self.font
-        #phgraph.getAxis('left').setRange(0,15)
-        phgraph.getAxis('left').setTickSpacing(1,1)
+        phgraph.getAxis('left').tickFont = self.font11
+        phgraph.getAxis('left').setRange(0,15)
+        phgraph.getAxis('bottom').tickFont = self.font10
+        phgraph.getViewBox().setBackgroundColor(color=(0,0,0,200))
         for i,BATH in enumerate([BATH1, BATH2, BATH3, BATH4]):
-            phgraph.plot(BATH.PH_list[-48:], pen=pg.mkPen(color=StyleSheet.lineColor[i], width=4),
-            antialias =True )
+            phgraph.plot(BATH.PH_list[-48:], pen=pg.mkPen(color=StyleSheet.lineColor[i], width=4))
             phgraph.addItem(pg.InfiniteLine(SETTINGS.BATH_dict['BATH'+str(i+1)]['PH']['from'],angle=0, 
-            movable=False,pen=pg.mkPen(color=StyleSheet.dotLineColor[i], width=2, style=QtCore.Qt.DotLine)))
+                            movable=False,pen=pg.mkPen(color=StyleSheet.dotLineColor[i], width=2, style=QtCore.Qt.DotLine)))
             phgraph.addItem(pg.InfiniteLine(SETTINGS.BATH_dict['BATH'+str(i+1)]['PH']['to'],angle=0,
-            movable=False,pen=pg.mkPen(color=StyleSheet.dotLineColor[i], width=2, style= QtCore.Qt.DotLine)))
+                            movable=False,pen=pg.mkPen(color=StyleSheet.dotLineColor[i], width=2, style= QtCore.Qt.DotLine)))
             
-    @PyQt5.QtCore.pyqtSlot(bool)
+    @PyQt5.QtCore.pyqtSlot(bool, int)
     def updateAirConditionPlot(self, new = True, graph = 0):
         if new :
             if self.radioButton_list[0][4].isChecked():
@@ -1403,117 +1391,109 @@ class EventThread(PyQt5.QtCore.QThread):
                 ui.graphicsView_aircondition1.clear()
                 stringaxis = pg.AxisItem(orientation = 'bottom')
                 stringaxis.setTicks([dict(enumerate(time_list)).items()])
-                stringaxis.tickFont = self.font
                 graph1 = ui.graphicsView_aircondition1.addPlot(axisItems = {'bottom':stringaxis})
+                graph1.getAxis('bottom').tickFont = self.font10
+                graph1.getAxis('left').tickFont = self.font11
+                graph1.getViewBox().setBackgroundColor(color=(0,0,0,200))
                 if ui.checkBox_outtmp.isChecked():
-                    graph1.plot(SENSOR.OUTTMP_list[-48:],pen=pg.mkPen(color=(24,32,98), width=3),
-                            style=QtCore.Qt.DashLine, antialias =True)
+                    graph1.plot(SENSOR.OUTTMP_list[-48:],pen=pg.mkPen(color=(245,183,0), width=3))
                 if ui.checkBox_intmp.isChecked():
-                    graph1.plot(SENSOR.INTMP_list[-48:],pen=pg.mkPen(color=(33,71,119), width=3),
-                            style=QtCore.Qt.DashLine, antialias = True)
+                    graph1.plot(SENSOR.INTMP_list[-48:],pen=pg.mkPen(color=(147,0,250), width=3))
                 if ui.checkBox_inhumid.isChecked():
-                    graph1.plot(SENSOR.INHUMID_list[-48:],pen=pg.mkPen(color=(33,94,162), width=3),
-                            style=QtCore.Qt.DashLine, antialias = True)
+                    graph1.plot(SENSOR.INHUMID_list[-48:],pen=pg.mkPen(color=(0,220,200), width=3))
                 if ui.checkBox_lux.isChecked():
-                    graph1.plot(SENSOR.LUX_list[-48:],pen=pg.mkPen(color=(27,119,208), width=3),
-                            style=QtCore.Qt.DashLine, antialias = True)
+                    graph1.plot(SENSOR.LUX_list[-48:],pen=pg.mkPen(color=(137,252,0), width=3))
             if self.radioButton_list[0][5].isChecked():
                 time_list = ['' if i%6 !=0 else SENSOR.SENSORS_DateTime_list[-i] for i in range(49)]
                 ui.graphicsView_aircondition2.clear()
                 stringaxis = pg.AxisItem(orientation = 'bottom')
                 stringaxis.setTicks([dict(enumerate(time_list)).items()])
-                stringaxis.tickFont = self.font
                 graph2 = ui.graphicsView_aircondition2.addPlot(axisItems = {'bottom':stringaxis})
+                graph2.getAxis('bottom').tickFont = self.font10
+                graph2.getAxis('left').tickFont = self.font11
+                graph2.getViewBox().setBackgroundColor(color=(0,0,0,200))
                 if ui.checkBox_co2.isChecked():
-                    graph2.plot(SENSOR.CO2_list[-48:],pen=pg.mkPen(color=(27,119,208), width=3),
-                            style=QtCore.Qt.DashLine, antialias =True)
+                    graph2.plot(SENSOR.CO2_list[-48:],pen=pg.mkPen(color=(245,183,0), width=3))
                 if ui.checkBox_ammonia.isChecked():
-                    graph2.plot(SENSOR.EC_list[-48:],pen=pg.mkPen(color=(33,94,162), width=3),
-                            style=QtCore.Qt.DashLine, antialias = True)
+                    graph2.plot(SENSOR.EC_list[-48:],pen=pg.mkPen(color=(137,252,0), width=3))
         else:
             if graph == 1:
                 if self.radioButton_list[1][4].isChecked():
-                    dictionary = SENSOR.WeekData_dict
-                else:# self.radioButton_list[2][4].isChecked():
-                    dictionary = SENSOR.MonthData_dict
-                time_list = ['' if i%24 !=0 else dictionary['TIME_sensors'][-i] for i in range(len(dictionary['TIME_sensors'])%168)]
+                    self.dictionary = SENSOR.WeekData_dict
+                elif self.radioButton_list[2][4].isChecked():
+                    self.dictionary = SENSOR.MonthData_dict
+                time_list = ['' if i%24 !=0 else self.dictionary['TIME_sensors'][-i] for i in range(len(self.dictionary['TIME_sensors']))]
                 stringaxis = pg.AxisItem(orientation = 'bottom')
                 stringaxis.setTicks([dict(enumerate(time_list)).items()])
-                stringaxis.tickFont = self.font
                 ui.graphicsView_aircondition1.clear()
                 graph1 = ui.graphicsView_aircondition1.addPlot(axisItems = {'bottom':stringaxis})
+                graph1.getAxis('bottom').tickFont = self.font10
+                graph1.getAxis('left').tickFont = self.font11
+                graph1.getViewBox().setBackgroundColor(color=(0,0,0,200))
                 if ui.checkBox_outtmp.isChecked():
-                    graph1.plot(dictionary['OUTTMP'],pen=pg.mkPen(color=(24,32,98), width=3),
-                            style=QtCore.Qt.DashLine, antialias =True)
+                    graph1.plot(self.dictionary['OUTTMP'],pen=pg.mkPen(color=(245,183,0), width=3))
                 if ui.checkBox_intmp.isChecked():
-                    graph1.plot(dictionary['INTMP'],pen=pg.mkPen(color=(33,71,119), width=3),
-                            style=QtCore.Qt.DashLine, antialias = True)
+                    graph1.plot(self.dictionary['INTMP'],pen=pg.mkPen(color=(147,0,250), width=3))
                 if ui.checkBox_inhumid.isChecked():
-                    graph1.plot(dictionary['INHUMID'],pen=pg.mkPen(color=(33,94,162), width=3),
-                            style=QtCore.Qt.DashLine, antialias = True)
+                    graph1.plot(self.dictionary['INHUMID'],pen=pg.mkPen(color=(0,220,200), width=3))
                 if ui.checkBox_lux.isChecked():
-                    graph1.plot(dictionary['LUX'],pen=pg.mkPen(color=(27,119,208), width=3),
-                            style=QtCore.Qt.DashLine, antialias = True)
+                    graph1.plot(self.dictionary['LUX'],pen=pg.mkPen(color=(137,252,0), width=3))
             elif graph == 2:
                 if self.radioButton_list[1][5].isChecked():
-                    dictionary = SENSOR.WeekData_dict
-                    print('week')
-                else :#if self.radioButton_list[2][5].isChecked():
-                    dictionary = SENSOR.MonthData_dict
-                    print('month')
-                time_list = ['' if i%6 !=0 else dictionary['TIME_sensors'] for i in range(len(dictionary['TIME_sensors']))]
+                    self.dictionary = SENSOR.WeekData_dict
+                elif self.radioButton_list[2][5].isChecked():
+                    self.dictionary = SENSOR.MonthData_dict
+                time_list = ['' if i%24 !=0 else self.dictionary['TIME_sensors'] for i in range(len(self.dictionary['TIME_sensors']))]
                 stringaxis = pg.AxisItem(orientation = 'bottom')
                 stringaxis.setTicks([dict(enumerate(time_list)).items()])
-                stringaxis.tickFont = self.font
                 ui.graphicsView_aircondition2.clear()
                 graph2 = ui.graphicsView_aircondition2.addPlot(axisItems = {'bottom':stringaxis})
+                graph2.getAxis('bottom').tickFont = self.font10
+                graph2.getAxis('left').tickFont = self.font11
+                graph2.getViewBox().setBackgroundColor(color = (0,0,0,200))
                 if ui.checkBox_co2.isChecked():
-                    graph2.plot(dictionary['CO2'],pen=pg.mkPen(color=(27,119,208), width=3),
-                            style=QtCore.Qt.DashLine, antialias =True)
+                    graph2.plot(self.dictionary['CO2'],pen=pg.mkPen(color=(245,183,0), width=3))
                 if ui.checkBox_ammonia.isChecked():
-                    graph2.plot(dictionary['AMMONIA'],pen=pg.mkPen(color=(33,94,162), width=3),
-                            style=QtCore.Qt.DashLine, antialias = True)
+                    graph2.plot(self.dictionary['AMMONIA'],pen=pg.mkPen(color=(137,252,0), width=3))
             
-    def updateSettings(self, applyall_clicked):
+    def updateSettings(self, pushButton_clicked = False, applyall_clicked = False, saveall_clicked = False,sensor='None'):
         if self.INITIALIZED_dict['settings'] == False:
             with open ('config.json', 'r') as jsonFile:
-                settingsdata = json.load(jsonFile)["SETTINGS"]
+                settingsData = json.load(jsonFile)["SETTINGS"]
                 for index in range(1,5):
-                    SETTINGS.BATH_dict['BATH'+str(index)]['TMP']['from'] = \
-                    settingsdata["BATH"+str(index)]["TMP"]["from"]
-                    SETTINGS.BATH_dict['BATH'+str(index)]['TMP']['to'] = \
-                    settingsdata["BATH"+str(index)]["TMP"]["to"]
-                    SETTINGS.BATH_dict['BATH'+str(index)]['DO']['from'] = \
-                    settingsdata["BATH"+str(index)]["DO"]["from"]
-                    SETTINGS.BATH_dict['BATH'+str(index)]['DO']['to'] = \
-                    settingsdata["BATH"+str(index)]["DO"]["to"]
-                    SETTINGS.BATH_dict['BATH'+str(index)]['PH']['from'] = \
-                    settingsdata["BATH"+str(index)]["PH"]["from"]
-                    SETTINGS.BATH_dict['BATH'+str(index)]['PH']['to'] = \
-                    settingsdata["BATH"+str(index)]["PH"]["to"]
-                SETTINGS.INTMP['from'] = settingsdata["INTMP"]["from"]
-                SETTINGS.INTMP['to'] = settingsdata["INTMP"]["to"]
-                SETTINGS.CO2['from'] = settingsdata["CO2"]["from"]
-                SETTINGS.CO2['to'] = settingsdata["CO2"]["to"]
-                SETTINGS.INLUX['from'] = settingsdata["INLUX"]["from"]
-                SETTINGS.INLUX['to'] = settingsdata["INLUX"]["to"]
-                SETTINGS.EC['from'] = settingsdata["EC"]["from"]
-                SETTINGS.EC['to'] = settingsdata["EC"]["to"]
-                SETTINGS.INHUMID['from'] = settingsdata["INHUMID"]["from"]
-                SETTINGS.INHUMID['to'] = settingsdata["INHUMID"]["to"]
-                SETTINGS.AMMONIA['from'] = settingsdata["AMMONIA"]["from"]
-                SETTINGS.AMMONIA['to'] = settingsdata["AMMONIA"]["to"]
-
-                SETTINGS.ELECTRON['delay'] = settingsdata["ELECTRON"]["delay"]
-                SETTINGS.ELECTRON['month'] = settingsdata["ELECTRON"]["month"]
-                SETTINGS.ELECTRON['blackout'] = settingsdata["ELECTRON"]["blackout"]
-                SETTINGS.FREQ = settingsdata["FREQ"]
-            print('called inintializing')
-            #Qt.Unchecked 0 Qt.Checked 2  
-            for i in range(8):
-                self.bathcheckbox_list[i].setCheckState(2 if SETTINGS.BATH_dict['BATH'+str(i+1)]['check'] == 'O' else 0)
+                    SETTINGS.BATH_dict['BATH'+str(index)]['TMP']['from'] = settingsData["BATH"+str(index)]["TMP"]["from"]
+                    SETTINGS.BATH_dict['BATH'+str(index)]['TMP']['to'] = settingsData["BATH"+str(index)]["TMP"]["to"]
+                    SETTINGS.BATH_dict['BATH'+str(index)]['DO']['from'] = settingsData["BATH"+str(index)]["DO"]["from"]
+                    SETTINGS.BATH_dict['BATH'+str(index)]['DO']['to'] = settingsData["BATH"+str(index)]["DO"]["to"]
+                    SETTINGS.BATH_dict['BATH'+str(index)]['PH']['from'] = settingsData["BATH"+str(index)]["PH"]["from"]
+                    SETTINGS.BATH_dict['BATH'+str(index)]['PH']['to'] = settingsData["BATH"+str(index)]["PH"]["to"]
+                    SETTINGS.BATH_dict['BATH'+str(index)]['check'] = settingsData["BATH"+str(index)]["check"]
+                for k,v in {"INTMP":SETTINGS.INTMP, "CO2":SETTINGS.CO2, "INLUX":SETTINGS.INLUX,
+                    "EC":SETTINGS.EC, "INHUMID":SETTINGS.INHUMID, "AMMONIA":SETTINGS.AMMONIA}.items():
+                    v['from'] = settingsData[k]["from"]
+                    v['to'] = settingsData[k]['to']
+                SETTINGS.ELECTRON['delay'] = settingsData["ELECTRON"]["delay"]
+                SETTINGS.ELECTRON['month'] = settingsData["ELECTRON"]["month"]
+                SETTINGS.ELECTRON['blackout'] = settingsData["ELECTRON"]["blackout"]
+                SETTINGS.FREQ1 = settingsData["FREQ1"]
+                SETTINGS.UNIT1 = settingsData["UNIT1"]
+                SETTINGS.FREQ2 = settingsData["FREQ2"]
+                SETTINGS.UNIT2 = settingsData["UNIT2"]
+                SETTINGS.IP = settingsData["IP"]
+                SETTINGS.PORT = settingsData['PORT']
             self.INITIALIZED_dict['settings'] = True
-        if not applyall_clicked:
+        if pushButton_clicked:
+            for i,lineEdit in enumerate([ui.lineEdit_ip1, ui.lineEdit_ip2, ui.lineEdit_ip3, ui.lineEdit_ip4]):
+                lineEdit.setText(SETTINGS.IP.split('.')[i])
+            ui.lineEdit_port.setText(SETTINGS.PORT)
+            ui.spinBox_sensorfreq1.setValue(int(SETTINGS.FREQ1))
+            ui.spinBox_sensorfreq2.setValue(int(SETTINGS.FREQ2))
+            classify = {'s':0, 'm':1, 'h':2}
+            unit1 = classify[SETTINGS.UNIT1]
+            unit2 = classify[SETTINGS.UNIT2]
+            print('u',SETTINGS.UNIT2, unit2)
+            ui.comboBox_sensorunits1.setCurrentIndex(unit1)
+            ui.comboBox_sensorunits2.setCurrentIndex(unit2)
             for index in range(4):
                 self.bathSpinBox_list[index][0].setValue(SETTINGS.BATH_dict['BATH'+str(index+1)]['TMP']['from'])
                 self.bathSpinBox_list[index][1].setValue(SETTINGS.BATH_dict['BATH'+str(index+1)]['TMP']['to'])
@@ -1533,17 +1513,72 @@ class EventThread(PyQt5.QtCore.QThread):
             ui.doubleSpinBox_inhumid2.setValue(SETTINGS.INHUMID['to'])
             ui.doubleSpinBox_ammonia1.setValue(SETTINGS.AMMONIA['from'])
             ui.doubleSpinBox_ammonia2.setValue(SETTINGS.AMMONIA['to'])
-
             ui.checkBox_dayelecalert.setCheckState(2) if SETTINGS.ELECTRON['delay'] == 'O' else 'X'
             ui.checkBox_monthelecalert.setCheckState(2) if SETTINGS.ELECTRON['month'] == 'O' else 'X'
-            ui.checkBox_blackoutalert.setCheckState(2) if SETTINGS.ELECTRON['blackout'] == 'O' else 'X'        
-        else :
+            ui.checkBox_blackoutalert.setCheckState(2) if SETTINGS.ELECTRON['blackout'] == 'O' else 'X'
+            #Qt.Unchecked 0 Qt.Checked 2  
+            for i in range(8):
+                self.bathcheckbox_list[i].setCheckState(2 if SETTINGS.BATH_dict['BATH'+str(i+1)]['check'] == 'O' else 0)
+        elif applyall_clicked:
             index = ui.tabWidget_2.currentIndex()
             for i in range(4):
                 for j in range(6):
                     self.bathSpinBox_list[i][j].setValue(self.bathSpinBox_list[index][j].value())
-
-    def updateElectron(self):
+        elif saveall_clicked:
+            for index in range(4):
+                SETTINGS.BATH_dict['BATH'+str(index+1)]['TMP']['from'] = self.bathSpinBox_list[index][0].value()
+                SETTINGS.BATH_dict['BATH'+str(index+1)]['TMP']['to'] = self.bathSpinBox_list[index][1].value()
+                SETTINGS.BATH_dict['BATH'+str(index+1)]['DO']['from'] = self.bathSpinBox_list[index][2].value()
+                SETTINGS.BATH_dict['BATH'+str(index+1)]['DO']['to'] = self.bathSpinBox_list[index][3].value()
+                SETTINGS.BATH_dict['BATH'+str(index+1)]['PH']['from'] = self.bathSpinBox_list[index][4].value()
+                SETTINGS.BATH_dict['BATH'+str(index+1)]['PH']['to'] = self.bathSpinBox_list[index][5].value()
+        elif sensor == 'sensor1':
+            if ui.comboBox_sensorunits1.currentText() == '초':
+                SETTINGS.FREQ1 = ui.spinBox_sensorfreq1.value()
+                SETTINGS.UNIT1 = 's'
+            elif ui.comboBox_sensorunits1.currentText() == '분':
+                SETTINGS.FREQ1 = ui.spinBox_sensorfreq1.value()
+                SETTINGS.UNIT1 = 'm'
+            elif ui.comboBox_sensorunits1.currentText() == '시':
+                SETTINGS.FREQ1 = ui.spinBox_sensorfreq1.value()
+                SETTINGS.UNIT1 = 'h'
+        elif sensor == 'sensor2':
+            print(ui.comboBox_sensorunits2.currentText())
+            if ui.comboBox_sensorunits2.currentText() == '초':
+                SETTINGS.FREQ2 = ui.spinBox_sensorfreq2.value()
+                SETTINGS.UNIT2 = 's'
+            elif ui.comboBox_sensorunits2.currentText() == '분':
+                SETTINGS.FREQ2 = ui.spinBox_sensorfreq2.value()
+                SETTINGS.UNIT2 = 'm'
+            elif ui.comboBox_sensorunits2.currentText() == '시':
+                SETTINGS.FREQ2 = ui.spinBox_sensorfreq2.value()
+                SETTINGS.UNIT2 = 'h'
+        elif sensor == 'server':
+            SETTINGS.IP = '.'.join([ui.lineEdit_ip1.text(), ui.lineEdit_ip2.text(),ui.lineEdit_ip3.text(),ui.lineEdit_ip4.text()])
+        elif sensor == 'intmp':
+            SETTINGS.INTMP['from']= ui.doubleSpinBox_intmp1.value()
+            SETTINGS.INTMP['to'] = ui.doubleSpinBox_intmp2.value()
+        elif sensor == 'co2':
+            SETTINGS.CO2['from']=ui.doubleSpinBox_co21.value()
+            SETTINGS.CO2['to'] = ui.doubleSpinBox_co22.value()
+        elif sensor == 'inlux':
+            SETTINGS.INLUX['from'] = ui.doubleSpinBox_lux1.value()
+            SETTINGS.INLUX['to'] = ui.doubleSpinBox_lux2.value()
+        elif sensor == 'ec':
+            SETTINGS.EC['from'] = ui.doubleSpinBox_ec1.value()
+            SETTINGS.EC['to'] = ui.doubleSpinBox_ec2.value()
+        elif sensor == 'inhumid':
+            SETTINGS.INHUMID['from'] = ui.doubleSpinBox_inhumid1.value()
+            SETTINGS.INHUMID['to'] = ui.doubleSpinBox_inhumid2.value()
+        elif sensor == 'ammonia':
+            SETTINGS.AMMONIA['from'] = ui.doubleSpinBox_ammonia1.value()
+            SETTINGS.AMMONIA['to'] = ui.doubleSpinBox_ammonia2.value()
+        elif sensor == 'electron':
+            SETTINGS.ELECTRON['delay'] = 'O' if ui.checkBox_dayelecalert.isChecked() else 'X'
+            SETTINGS.ELECTRON['month'] = 'O' if ui.checkBox_monthelecalert.isChecked() else 'X'
+            SETTINGS.ELECTRON['blackout'] = 'O' if ui.checkBox_blackoutalert.isChecked() else 'X'
+    
+    def updateELEC(self):
         ui.label_elec1hour.setText(str(SENSOR.ELECTRON_dict['1hour']))
         ui.label_elec1day.setText(str(SENSOR.ELECTRON_dict['1day']))
         ui.label_elec1week.setText(str(SENSOR.ELECTRON_dict['1week']))
@@ -1554,27 +1589,29 @@ class EventThread(PyQt5.QtCore.QThread):
     def updateELECPlot(self, new = True):
         if new :
             if self.radioButton_list[0][6].isChecked():
+                time_list = ['' if i%6 != 0 else SENSOR.ELECTRON_DateTime_list[-i] for i in range(1,49)]
                 ui.graphicsView_elecgraph.clear()
                 stringaxis = pg.AxisItem(orientation = 'bottom')
-                stringaxis.setTicks([dict(enumerate(SENSOR.ELECTRON_DateTime_list[-48:])).items()])
+                stringaxis.setTicks([dict(enumerate(time_list)).items()])
                 elecgraph = ui.graphicsView_elecgraph.addPlot(title = '전력량',axisItems = {'bottom': stringaxis})
-                elecgraph.getAxis('bottom').tickFont = self.font
-                elecgraph.getAxis('left').tickFont = self.font
-                elecgraph.plot(SENSOR.ELECTRON_list[-48:],pen=pg.mkPen(color=(27,119,208), width=3),
-                            tyle=QtCore.Qt.DashLine, antialias = True)
+                elecgraph.getAxis('bottom').tickFont = self.font10
+                elecgraph.getAxis('left').tickFont = self.font11
+                elecgraph.getViewBox().setBackgroundColor(color=(0,0,0,200))
+                elecgraph.plot(SENSOR.ELECTRON_list[-48:],pen=pg.mkPen(color=(25,255,55), width=3))
         else:
             if self.radioButton_list[1][6].isChecked():
-                dictionary = SENSOR.WeekData_dict
+                self.dictionary = SENSOR.WeekData_dict
             elif self.radioButton_list[2][6].isChecked():
-                dictionary = SENSOR.MonthData_dict
+                self.dictionary = SENSOR.MonthData_dict
             ui.graphicsView_elecgraph.clear()
+            time_list = ['' if i%6 != 0 else self.dictionary['TIME_electron'][-i] for i in range(len(self.dictionary['TIME_electron']))]
             stringaxis = pg.AxisItem(orientation = 'bottom')
-            stringaxis.setTicks([dict(enumerate(dictionary['TIME_electron'][-48:])).items()])
+            stringaxis.setTicks([dict(enumerate(time_list)).items()])
             elecgraph = ui.graphicsView_elecgraph.addPlot(title = '전력량',axisItems = {'bottom': stringaxis})
-            elecgraph.getAxis('bottom').tickFont = self.font
-            elecgraph.getAxis('left').tickFont = self.font
-            elecgraph.plot(dictionary['ELECTRON'][-48:],pen=pg.mkPen(color=(27,119,208), width=3),
-                        tyle=QtCore.Qt.DashLine, antialias = True)
+            elecgraph.getAxis('bottom').tickFont = self.font10
+            elecgraph.getAxis('left').tickFont = self.font11
+            elecgraph.getViewBox().setBackgroundColor(color=(0,0,0,200))
+            elecgraph.plot(self.dictionary['ELECTRON'][-48:],pen=pg.mkPen(color=(25,255,55), width=3))
 
 
 def stopall(eventThread, valueUpdateThread, timeUpdateThread, uartCom, dbInsertManagerThread, dbFetchManagerThread):
@@ -1589,24 +1626,45 @@ def stopall(eventThread, valueUpdateThread, timeUpdateThread, uartCom, dbInsertM
     dbInsertManagerThread.disconnect()
     dbFetchManagerThread.disconnect()
     print('saving data')
-    with open('config.json', 'r') as jsonFile:
+    with open ('config.json', 'r') as jsonFile:
         data = json.load(jsonFile)
+        settingsData = data['SETTINGS']
+        actuatordata = data["ACTUATOR"]
         for i, bath in enumerate(["BATH1", "BATH2", "BATH3", "BATH4"]):
             data[bath]["PUMP"] = bathDef_list[i].PUMP
             data[bath]["HEATER"] = bathDef_list[i].HEATER
-        actuatordata = data["ACTUATOR"]
         actuatordata["AIR"]["power"] = ACTUATOR.AIR['power']
         actuatordata["WIND"]["power"] = ACTUATOR.WIND['power']
         actuatordata["LED"]["power"] = ACTUATOR.LED['power']
         actuatordata["UV"]["power"] = ACTUATOR.UV['power']
-    with open('config.json', 'w') as jsonFile:
-        json.dump(data, jsonFile, indent= 4)
+        for index in range(1,5):
+            settingsData["BATH"+str(index)]["TMP"]["from"] = SETTINGS.BATH_dict['BATH'+str(index)]['TMP']['from']
+            settingsData["BATH"+str(index)]["TMP"]["to"] = SETTINGS.BATH_dict['BATH'+str(index)]['TMP']['to']
+            settingsData["BATH"+str(index)]["DO"]["from"] = SETTINGS.BATH_dict['BATH'+str(index)]['DO']['from'] 
+            settingsData["BATH"+str(index)]["DO"]["to"] = SETTINGS.BATH_dict['BATH'+str(index)]['DO']['to']
+            settingsData["BATH"+str(index)]["PH"]["from"] = SETTINGS.BATH_dict['BATH'+str(index)]['PH']['from'] 
+            settingsData["BATH"+str(index)]["PH"]["to"] = SETTINGS.BATH_dict['BATH'+str(index)]['PH']['to'] 
+            settingsData["BATH"+str(index)]["check"] = SETTINGS.BATH_dict['BATH'+str(index)]['check']
+        for k, v in {"INTMP":SETTINGS.INTMP, "CO2":SETTINGS.CO2, "INLUX":SETTINGS.INLUX,
+                    "EC":SETTINGS.EC, "INHUMID":SETTINGS.INHUMID, "AMMONIA":SETTINGS.AMMONIA}.items(): 
+            settingsData[k]["from"] = v['from']
+            settingsData[k]['to'] = v['to']
+        settingsData["ELECTRON"]["delay"] = SETTINGS.ELECTRON['delay'] 
+        settingsData["ELECTRON"]["month"] = SETTINGS.ELECTRON['month']
+        settingsData["ELECTRON"]["blackout"] = SETTINGS.ELECTRON['blackout'] 
+        settingsData["FREQ1"] = SETTINGS.FREQ1
+        settingsData["FREQ2"] = SETTINGS.FREQ2
+        settingsData["UNIT1"] = SETTINGS.UNIT1
+        settingsData["UNIT2"] = SETTINGS.UNIT2
+    with open("config.json", "w") as jsonFile:
+        json.dump(data, jsonFile, indent = 4)
     print("Closed all thread!")
 
 if __name__ == '__main__':
     import sys
     pg.setConfigOption('background', 'w')
     pg.setConfigOption('foreground', 'k')
+    pg.setConfigOptions(antialias = True)
     app = QtWidgets.QApplication(sys.argv)
     MainWindow = QtWidgets.QMainWindow()
     ui = Ui_MainWindow()
@@ -1617,6 +1675,6 @@ if __name__ == '__main__':
     eventThread = EventThread(ui)
     uartCom = UartCom(ui, eventThread, dbInsertManagerThread)
     valueUpdateThread = ValueUpdateThread(ui, uartCom, eventThread)
-    dbFetchManagerThread = DBFetchManager(ui,eventThread)
+    dbFetchManagerThread = DBFetchManager(ui, eventThread)
     app.aboutToQuit.connect(lambda: stopall(eventThread, valueUpdateThread, timeUpdateThread, uartCom, dbInsertManagerThread, dbFetchManagerThread))
     sys.exit(app.exec_())
